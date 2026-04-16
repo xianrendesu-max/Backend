@@ -1,15 +1,21 @@
-const express = require('express');
-const axios = require('axios');
-const path = require('path');
+import express from 'express';
+import axios from 'axios';
+import path from 'path';
+import cors from 'cors';
+import { fileURLToPath } from 'url';
+
 const app = express();
 
-// CORS設定（Vercelやローカル環境でのフロントエンド接続用）
-const cors = require('cors');
+// ES Moduleで __dirname を定義する
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// CORS設定
 app.use(cors());
 
 const PORT = process.env.PORT || 3000;
 
-// 使用するInvidiousインスタンスのリスト（安定性の高いものを厳選）
+// 使用するInvidiousインスタンスのリスト
 const INVIDIOUS_INSTANCES = [
     'https://yewtu.be',
     'https://invidious.asir.dev',
@@ -27,7 +33,6 @@ const INVIDIOUS_INSTANCES = [
 function injectYoutubeThumbnails(video, id) {
     const videoId = id || video.videoId;
     if (videoId) {
-        // 高画質なサムネイル(hqdefault)をセット
         video.thumbnail = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
         video.videoThumbnails = [
             { quality: 'high', url: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` },
@@ -48,7 +53,7 @@ async function fetchFromFastestInstance(endpoint) {
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
             signal: controller.signal
         }).then(res => {
-            controller.abort(); // 最初に成功した時点で他をキャンセル
+            controller.abort(); 
             return res.data;
         })
     );
@@ -63,22 +68,18 @@ app.get('/api/watch', async (req, res) => {
     if (!videoId) return res.status(400).json({ error: 'Video ID is required' });
 
     try {
-        // メタデータ(Invidious)とストリームURL(ytdlp-proxy)を並列取得
         const [metadata, streamData] = await Promise.all([
             fetchFromFastestInstance(`/videos/${videoId}`),
             axios.get(`https://ytdlpinstance-vercel.vercel.app/stream/${videoId}?f=18`, { timeout: 8000 })
                 .then(r => r.data)
-                .catch(() => ({ formats: [] })) // 失敗時のフォールバック用
+                .catch(() => ({ formats: [] }))
         ]);
 
-        // サムネイルをYouTube直結に変換
         const processedData = injectYoutubeThumbnails(metadata, videoId);
 
-        // ytdlpプロキシから最適なURLを選択
         const format18 = streamData.formats?.find(f => f.itag === 18 || f.itag === "18");
         const finalStreamUrl = format18 ? format18.url : `https://ytdlpinstance-vercel.vercel.app/stream?v=${videoId}`;
 
-        // フロントエンド(watch.html)が期待するレスポンス形式
         res.json({
             title: processedData.title,
             description: processedData.description,
@@ -126,14 +127,10 @@ app.get('/api/search', async (req, res) => {
 });
 
 // 静的ファイルの配信
-app.use(express.static(path.join(__dirname, 'public')));
-
-app.get('/watch', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/watch.html'));
-});
+app.use(express.static(path.join(__dirname, '../public')));
 
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
 });
 
-module.exports = app; // Vercel用
+export default app;

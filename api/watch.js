@@ -1,68 +1,60 @@
 import fetch from 'node-fetch';
 
 export default async function handler(req, res) {
-  // CORSヘッダーの設定（フロントエンドからのアクセスを許可）
+  // CORS設定
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
 
   const { id } = req.query;
+  if (!id) return res.status(400).json({ error: "ID is missing" });
 
-  // 動画IDがない場合はエラー
-  if (!id) {
-    return res.status(400).json({ error: "Video ID is required" });
-  }
-
-  // 利用可能なInvidiousインスタンス
-  const INSTANCE = 'https://inv.nadeko.net';
+  // 複数のインスタンスを候補に入れる（nadekoがAPI制限をかけている場合があるため）
+  const INSTANCE = 'https://inv.nadeko.net'; 
 
   try {
-    const response = await fetch(`${INSTANCE}/api/v1/videos/${id}`);
-    
+    // タイムアウト付きでフェッチ
+    const response = await fetch(`${INSTANCE}/api/v1/videos/${id}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+
     if (!response.ok) {
-      throw new Error(`Instance responded with status: ${response.status}`);
+      const errorText = await response.text();
+      throw new Error(`Instance Error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
 
-    // フロントエンドの watch.html が期待する構造にマッピング
-    // 1. ストリームURLの抽出
+    // ストリームの選別
     const streams = (data.formatStreams || []).map(s => ({
       url: s.url,
       quality: s.qualityLabel,
       container: s.container
     }));
 
-    // 2. 関連動画のマッピング
+    // 推奨動画の選別
     const recommended = (data.recommendedVideos || []).map(rv => ({
       id: rv.videoId,
       title: rv.title,
       author: rv.author,
       views: rv.viewCountText,
-      thumbnail: rv.videoThumbnails ? rv.videoThumbnails.find(t => t.quality === 'medium')?.url || rv.videoThumbnails[0].url : ""
+      thumbnail: rv.videoThumbnails?.find(t => t.quality === 'medium')?.url || rv.videoThumbnails?.[0]?.url || ""
     }));
 
-    // フロントエンドへレスポンスを返す
     res.status(200).json({
       title: data.title,
       description: data.description,
-      author: data.author, // 投稿者名
-      views: data.viewCount.toLocaleString(), // 視聴回数（カンマ区切り）
-      published: data.publishedText, // 投稿日（"1日前" など）
+      author: data.author,
+      views: data.viewCount?.toLocaleString() || "0",
+      published: data.publishedText,
       streams: streams,
       recommended: recommended
     });
 
   } catch (error) {
-    console.error("Video load error:", error);
-    res.status(500).json({ 
-      error: "Video load failed", 
-      message: error.message 
-    });
+    console.error("Backend Error:", error.message);
+    res.status(500).json({ error: "Failed to fetch from instance", details: error.message });
   }
 }

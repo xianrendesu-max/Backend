@@ -2,7 +2,7 @@ import fetch from 'node-fetch';
 
 export default async function handler(req, res) {
   const { id } = req.query;
-  const INSTANCE = 'https://inv.riverside.rocks';
+  const INSTANCE = 'https://invidious.f5.si';
 
   try {
     const response = await fetch(`${INSTANCE}/api/v1/videos/${id}`);

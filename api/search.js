@@ -2,7 +2,7 @@ import fetch from 'node-fetch';
 
 export default async function handler(req, res) {
   const { q } = req.query;
-  const INSTANCE = 'https://invidious.f5.si/';
+  const INSTANCE = 'https://invidious.f5.si';
 
   try {
     const response = await fetch(`${INSTANCE}/api/v1/search?q=${encodeURIComponent(q)}&region=JP`);

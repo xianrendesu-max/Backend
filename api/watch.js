@@ -1,4 +1,4 @@
-import express from 'express';
+Import express from 'express';
 import cors from 'cors';
 import { Innertube } from 'youtubei.js';
 
@@ -58,7 +58,7 @@ app.get('/api/watch', async (req, res) => {
       const c = thread.comment;
       return {
         author: c.author?.name || "匿名",
-        authorIcon: c.author?.thumbnails?.[0]?.url || null,
+        authorIcon: c.author?.thumbnails?.?.url || null,
         text: c.content?.toString() || "",
         date: c.published_time || "",
         likes: c.like_count || 0,
@@ -67,8 +67,8 @@ app.get('/api/watch', async (req, res) => {
 
     // 3. フロントエンド(watch.html)が期待するレスポンス形式にマッピング（streamsなし）
     const responseData = {
-      title: basicInfo.title,
-      description: basicInfo.description,
+      title: basicInfo.title?.toString() || "",
+      description: basicInfo.short_description || basicInfo.description?.toString() || "",
       author: basicInfo.author,
       authorId: basicInfo.channel_id,
       views: basicInfo.view_count?.toLocaleString() || "0",

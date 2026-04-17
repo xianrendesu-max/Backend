@@ -57,9 +57,9 @@ app.get('/api/watch', async (req, res) => {
     const comments = commentThreads.map((thread) => {
       const c = thread.comment;
       return {
-        author: c.author?.name || "匿名",
-        authorIcon: c.author?.thumbnails?.?.url || null,
-        text: c.content?.toString() || "",
+        author: (c.author && c.author.name) || "匿名",
+        authorIcon: (c.author && c.author.thumbnails && c.author.thumbnails && c.author.thumbnails.url) || null,
+        text: (c.content && c.content.toString()) || "",
         date: c.published_time || "",
         likes: c.like_count || 0,
       };
@@ -67,31 +67,31 @@ app.get('/api/watch', async (req, res) => {
 
     // 3. フロントエンド(watch.html)が期待するレスポンス形式にマッピング（streamsなし）
     const responseData = {
-      title: basicInfo.title?.toString() || "",
-      description: basicInfo.short_description || basicInfo.description?.toString() || "",
+      title: (basicInfo.title && basicInfo.title.toString()) || "",
+      description: basicInfo.short_description || (basicInfo.description && basicInfo.description.toString()) || "",
       author: basicInfo.author,
       authorId: basicInfo.channel_id,
-      views: basicInfo.view_count?.toLocaleString() || "0",
+      views: (basicInfo.view_count && basicInfo.view_count.toLocaleString()) || "0",
       published: basicInfo.is_live ? "ライブ配信中" : "公開済み",
       // サムネイルをYouTube公式から取得
-      thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+      thumbnail: "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg",
       // 関連動画
-      recommended: videoInfo.watch_next_feed?.contents?.map(v => ({
+      recommended: (videoInfo.watch_next_feed && videoInfo.watch_next_feed.contents && videoInfo.watch_next_feed.contents.map(v => ({
         id: v.id,
-        title: v.title?.toString(),
-        author: v.author?.name,
-        views: v.short_view_count?.toString(),
-        thumbnail: `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`
-      })).filter(v => v.id) || [],
+        title: v.title && v.title.toString(),
+        author: v.author && v.author.name,
+        views: v.short_view_count && v.short_view_count.toString(),
+        thumbnail: "https://i.ytimg.com/vi/" + v.id + "/mqdefault.jpg"
+      })).filter(v => v.id)) || [],
       // コメント情報
-      commentCount: commentSection.header?.count?.text || "0",
+      commentCount: (commentSection.header && commentSection.header.count && commentSection.header.count.text) || "0",
       comments: comments
     };
 
     res.json(responseData);
 
   } catch (err) {
-    console.error(`[ERROR][${videoId}]`, err);
+    console.error("[ERROR][" + videoId + "]", err);
     res.status(500).json({ error: "動画情報の取得に失敗しました。" });
   }
 });

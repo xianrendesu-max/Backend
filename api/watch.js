@@ -7,15 +7,23 @@ app.use(cors());
 
 let youtube;
 
-// YouTubeクライアントの初期化
-(async () => {
-  try {
+// 初期化用関数（リクエスト時にも呼び出せるように分離）
+async function getYoutubeClient() {
+  if (!youtube) {
     youtube = await Innertube.create({
       lang: "ja",
       location: "JP",
       retrieve_player: true,
     });
     console.log("YouTube Client (youtubei.js) Initialized");
+  }
+  return youtube;
+}
+
+// サーバー起動時に初期化を開始しておく
+(async () => {
+  try {
+    await getYoutubeClient();
   } catch (e) {
     console.error("Failed to initialize YouTube Client:", e);
   }
@@ -29,14 +37,17 @@ app.get('/api/watch', async (req, res) => {
   }
 
   try {
-    if (!youtube) {
+    // クライアントが未準備なら準備できるまで待つ
+    const client = await getYoutubeClient();
+
+    if (!client) {
       return res.status(503).json({ error: "Client not ready" });
     }
 
     // 1. 動画詳細情報とコメントを並行して取得
     const [videoInfo, commentSection] = await Promise.all([
-      youtube.getInfo(videoId),
-      youtube.getComments(videoId).catch(() => ({ contents: [] })) // コメント失敗時は空配列
+      client.getInfo(videoId),
+      client.getComments(videoId).catch(() => ({ contents: [] })) // コメント失敗時は空配列
     ]);
 
     const basicInfo = videoInfo.basic_info;

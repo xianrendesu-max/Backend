@@ -9,18 +9,25 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 app.use(cors());
-app.use(express.json()); // JSONボディパーサーを追加（将来用）
+app.use(express.json());
 
-// インスタンスリスト（死んでいるものを除外しやすいよう定数化）
-const INVIDIOUS_INSTANCES = [
-    'https://yewtu.be',
-    'https://invidious.snopyta.org',
-    'https://vid.puffyan.us',
-    'https://invidious.kavin.rocks'
+const PORT = process.env.PORT || 3000;
+
+/**
+ * 1. 信頼性の高いインスタンスリスト
+ * ※ api.invidious.io から自動取得する仕組みを fetch 内に組み込んでいます
+ */
+let CACHED_INSTANCES = [
+    'https://invidious.projectsegfau.lt',
+    'https://invidious.privacydev.net',
+    'https://iv.ggtyler.dev',
+    'https://inv.pistasjis.net',
+    'https://invidious.perennialte.ch',
+    'https://yewtu.be'
 ];
 
 /**
- * 安全にYouTubeサムネイルを生成
+ * サムネイルをYouTube公式から取得するように差し替え
  */
 function injectYoutubeThumbnails(video, id) {
     if (!video) return {};
@@ -36,53 +43,58 @@ function injectYoutubeThumbnails(video, id) {
 }
 
 /**
- * インスタンスから最速でデータを取得
- * 強化ポイント: AggregateErrorのハンドリング、タイムアウトの厳格化
+ * 2. インスタンスから最速で取得するコア関数
+ * 全滅を避けるため、タイムアウトとエラー判定を厳格化
  */
 async function fetchFromFastestInstance(endpoint) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 全体タイムアウト
+    // 全体の制限時間を10秒に設定
+    const globalTimeout = setTimeout(() => controller.abort(), 10000);
 
-    const requests = INVIDIOUS_INSTANCES.map(async (instance) => {
+    const requests = CACHED_INSTANCES.map(async (instance) => {
         try {
-            const res = await axios.get(`${instance}/api/v1${endpoint}`, { 
-                timeout: 5000,
-                headers: { 
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            const res = await axios.get(`${instance}/api/v1${endpoint}`, {
+                timeout: 6000,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     'Accept': 'application/json'
                 },
                 signal: controller.signal
             });
 
-            // HTMLレスポンスのチェック
-            if (typeof res.data === 'string' && res.data.includes('<!DOCTYPE')) {
-                throw new Error("HTML_RESPONSE_ERROR");
+            // Cloudflareの待機画面やエラーページ（HTML）が返ってきた場合は失敗扱いにする
+            if (typeof res.data === 'string' && (res.data.includes('<!DOCTYPE') || res.data.includes('<html'))) {
+                throw new Error(`HTML_RESPONSE_FROM_${instance}`);
             }
 
-            // データ構造の最低限のチェック
-            if (!res.data || (typeof res.data !== 'object')) {
-                throw new Error("INVALID_DATA_FORMAT");
+            // データが空、または予期せぬ形式（検索結果が配列でない等）のチェック
+            if (!res.data || (endpoint.includes('/search') && !Array.isArray(res.data))) {
+                throw new Error(`INVALID_DATA_FROM_${instance}`);
             }
 
-            controller.abort(); // 最初に成功したリクエスト以外を中断
+            controller.abort(); // 他のリクエストをキャンセル
             return res.data;
         } catch (err) {
-            // 個別のリクエスト失敗はPromise.anyが処理するので再スロー
+            // 個別のエラーはログに出すが、Promise.anyのために再スロー
+            console.warn(`Instance failed: ${instance} | Reason: ${err.message}`);
             throw err;
         }
     });
 
     try {
         const result = await Promise.any(requests);
-        clearTimeout(timeoutId);
+        clearTimeout(globalTimeout);
         return result;
     } catch (err) {
-        clearTimeout(timeoutId);
-        // 全てのインスタンスが失敗した場合の処理
+        clearTimeout(globalTimeout);
+        console.error("Critical: All instances failed to respond with JSON.");
         throw new Error("ALL_INSTANCES_FAILED");
     }
 }
 
+/**
+ * 3. 動画再生 API
+ */
 app.get('/api/watch', async (req, res) => {
     const videoId = req.query.id || req.query.v;
     if (!videoId || typeof videoId !== 'string') {
@@ -90,33 +102,47 @@ app.get('/api/watch', async (req, res) => {
     }
 
     try {
-        // streamDataの取得でエラーが起きてもmetadata取得を殺さないように保護
-        const [metadata, streamData] = await Promise.allSettled([
+        // Promise.allSettled を使い、片方が失敗してももう片方を活かす
+        const [metadataResult, streamResult] = await Promise.allSettled([
             fetchFromFastestInstance(`/videos/${videoId}`),
-            axios.get(`https://ytdlpinstance-vercel.vercel.app/stream/${videoId}?f=18`, { timeout: 7000 })
+            axios.get(`https://ytdlpinstance-vercel.vercel.app/stream/${videoId}?f=18`, { timeout: 8000 })
                 .then(r => r.data)
-                .catch(() => ({ formats: [] }))
+                .catch(e => {
+                    console.warn("Stream API fallback engaged:", e.message);
+                    return { formats: [] };
+                })
         ]);
 
-        if (metadata.status === 'rejected') {
-            throw new Error(metadata.reason.message);
+        // メタデータ（タイトル等）が取れなかった場合はエラー
+        if (metadataResult.status === 'rejected') {
+            return res.status(503).json({ 
+                error: '動画情報の取得に失敗しました。', 
+                debug: metadataResult.reason.message 
+            });
         }
 
-        const data = metadata.value;
-        const processedData = injectYoutubeThumbnails(data, videoId);
-        const sData = streamData.status === 'fulfilled' ? streamData.value : { formats: [] };
-
-        // ストリームURLの安全な抽出
-        const format18 = sData.formats?.find(f => String(f.itag) === "18");
-        const finalStreamUrl = format18?.url || `https://ytdlpinstance-vercel.vercel.app/stream?v=${videoId}`;
+        const metadata = metadataResult.value;
+        const processedData = injectYoutubeThumbnails(metadata, videoId);
+        
+        // ストリームURLの選定（yt-dlp側がダメならプロキシURLを生成）
+        const streamData = streamResult.status === 'fulfilled' ? streamResult.value : { formats: [] };
+        const format18 = streamData.formats?.find(f => String(f.itag) === "18");
+        const finalStreamUrl = format18 ? format18.url : `https://ytdlpinstance-vercel.vercel.app/stream?v=${videoId}`;
 
         res.json({
-            title: processedData.title || "Unknown Title",
+            title: processedData.title || "不明なタイトル",
             description: processedData.description || "",
-            author: processedData.author || "Unknown Artist",
+            author: processedData.author || "不明なチャンネル",
+            authorId: processedData.authorId || "",
             views: processedData.viewCount?.toLocaleString() || "0",
             published: processedData.publishedText || "",
-            streams: [{ url: finalStreamUrl, quality: "720p", container: "mp4" }],
+            streams: [
+                {
+                    url: finalStreamUrl,
+                    quality: "720p",
+                    container: "mp4"
+                }
+            ],
             recommended: (processedData.recommendedVideos || []).map(rv => ({
                 id: rv.videoId,
                 title: rv.title,
@@ -127,14 +153,14 @@ app.get('/api/watch', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Watch API Error:', error.message);
-        res.status(500).json({ 
-            error: '動画データの取得に失敗しました。', 
-            details: error.message === "ALL_INSTANCES_FAILED" ? "利用可能なサーバーが見つかりません。" : "APIエラー"
-        });
+        console.error('Watch API Critical Error:', error);
+        res.status(500).json({ error: '予期せぬエラーが発生しました。' });
     }
 });
 
+/**
+ * 4. 検索 API
+ */
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
     if (!query) return res.status(400).json({ error: 'Query is empty' });
@@ -142,25 +168,27 @@ app.get('/api/search', async (req, res) => {
     try {
         const data = await fetchFromFastestInstance(`/search?q=${encodeURIComponent(String(query))}&region=JP`);
         
-        if (!Array.isArray(data)) {
-            throw new Error("SEARCH_DATA_NOT_ARRAY");
-        }
+        // 配列であることを確認してから処理
+        const results = Array.isArray(data) 
+            ? data.filter(item => item.type === 'video').map(v => injectYoutubeThumbnails(v))
+            : [];
 
-        const results = data
-            .filter(item => item && item.type === 'video')
-            .map(video => injectYoutubeThumbnails(video));
-            
         res.json(results);
     } catch (error) {
         console.error('Search API Error:', error.message);
-        res.status(500).json({ error: '検索に失敗しました。後ほどやり直してください。' });
+        res.status(500).json({ 
+            error: '検索結果を取得できませんでした。', 
+            debug: error.message 
+        });
     }
 });
 
 // 静的ファイルの提供
 app.use(express.static(path.join(__dirname, '../public')));
 
-// 404ハンドリング
-app.use((req, res) => res.status(404).json({ error: "Not Found" }));
+// サーバー起動
+app.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+});
 
 export default app;

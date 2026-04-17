@@ -58,14 +58,14 @@ app.get('/api/watch', async (req, res) => {
       const c = thread.comment;
       return {
         author: c.author?.name || "匿名",
-        authorIcon: c.author?.thumbnails?.[0]?.url || null,
+        authorIcon: c.author?.thumbnails?.?.url || null,
         text: c.content?.toString() || "",
         date: c.published_time || "",
         likes: c.like_count || 0,
       };
     });
 
-    // 3. フロントエンド(watch.html)が期待するレスポンス形式にマッピング（streamsなし）
+    // 3. フロントエンド(watch.html)が期待するレスポンス形式にマッピング
     const responseData = {
       title: basicInfo.title,
       description: basicInfo.description,

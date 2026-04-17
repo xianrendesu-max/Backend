@@ -57,7 +57,7 @@ app.get('/api/watch', async (req, res) => {
       const c = thread.comment;
       return {
         author: c.author?.name || "匿名",
-        authorIcon: c.author?.thumbnails?.[0]?.url || null,
+        authorIcon: c.author?.thumbnails?.?.url || null,
         text: c.content?.toString() || "",
         date: c.published_time || "",
         likes: c.like_count || 0,
@@ -70,7 +70,7 @@ app.get('/api/watch', async (req, res) => {
       description: basicInfo.short_description || basicInfo.description || "",
       author: basicInfo.author || (videoInfo.primary_info?.owner?.author?.name) || "不明なチャンネル",
       authorId: basicInfo.channel_id,
-      authorIcon: videoInfo.primary_info?.owner?.author?.thumbnails?.[0]?.url || "",
+      authorIcon: videoInfo.primary_info?.owner?.author?.thumbnails?.?.url || "",
       views: basicInfo.view_count?.toLocaleString() || "0",
       published: basicInfo.is_live ? "ライブ配信中" : (videoInfo.primary_info?.published?.toString() || "公開済み"),
       thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
@@ -90,6 +90,30 @@ app.get('/api/watch', async (req, res) => {
   } catch (err) {
     console.error(`[ERROR][${videoId}]`, err);
     res.status(500).json({ error: "動画情報の取得に失敗しました。" });
+  }
+});
+
+// ストリーミング用エンドポイントの追加 (HTML側の api/getstream.js に対応)
+app.get('/api/getstream.js', async (req, res) => {
+  const videoId = req.query.v;
+  if (!videoId) return res.status(400).send("ID required");
+
+  try {
+    const client = await getYoutubeClient();
+    const stream = await client.download(videoId, {
+      type: 'video+audio',
+      quality: 'best',
+      format: 'mp4'
+    });
+
+    res.setHeader('Content-Type', 'video/mp4');
+    for await (const chunk of stream) {
+      res.write(chunk);
+    }
+    res.end();
+  } catch (err) {
+    console.error("Stream Error:", err);
+    res.status(500).send("Stream Error");
   }
 });
 

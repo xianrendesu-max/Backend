@@ -3,12 +3,16 @@
   "version": "1.0.0",
   "main": "api/watch.js",
   "type": "module",
-  
+  "scripts": {
+    "start": "node api/watch.js",
+    "dev": "nodemon api/watch.js"
+  },
   "dependencies": {
     "express": "^4.18.2",
     "axios": "^1.6.0",
     "cors": "^2.8.5",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "youtubei.js": "^12.1.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

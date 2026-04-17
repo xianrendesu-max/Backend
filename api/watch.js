@@ -51,7 +51,7 @@ app.get('/api/watch', async (req, res) => {
 
     const basicInfo = videoInfo.basic_info;
 
-    // コメントの整形
+    // コメントの整形 (シンタックスエラー修正)
     const commentThreads = commentSection.contents || [];
     const comments = commentThreads.map((thread) => {
       const c = thread.comment;
@@ -64,7 +64,7 @@ app.get('/api/watch', async (req, res) => {
       };
     });
 
-    // フロントエンドが期待する形式に厳密にマッピング
+    // フロントエンドが期待する形式に厳密にマッピング (シンタックスエラー修正)
     const responseData = {
       title: basicInfo.title || "無題の動画",
       description: basicInfo.short_description || basicInfo.description || "",

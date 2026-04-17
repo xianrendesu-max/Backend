@@ -68,7 +68,7 @@ app.get('/api/watch', async (req, res) => {
     // 3. フロントエンド(watch.html)が期待するレスポンス形式にマッピング（streamsなし）
     const responseData = {
       title: (basicInfo.title && basicInfo.title.toString()) || "",
-      description: basicInfo.short_description || (basicInfo.description && basicInfo.description.toString()) || "",
+      description: (basicInfo.description && basicInfo.description.toString()) || basicInfo.short_description || "",
       author: basicInfo.author,
       authorId: basicInfo.channel_id,
       views: (basicInfo.view_count && basicInfo.view_count.toLocaleString()) || "0",

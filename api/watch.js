@@ -5,31 +5,25 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 
 const app = express();
-
-// ES Moduleで __dirname を定義する
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// CORS設定
 app.use(cors());
 
 const PORT = process.env.PORT || 3000;
 
-// 使用するInvidiousインスタンスのリスト
+// 終了したインスタンスを除外し、現在動いているものを優先
 const INVIDIOUS_INSTANCES = [
     'https://yewtu.be',
     'https://invidious.asir.dev',
     'https://inv.tux.pizza',
-    'https://iv.ggtyler.dev',
     'https://invidious.projectsegfau.lt',
     'https://inv.river.group',
     'https://invidious.no-logs.com',
-    'https://invidious.flokinet.to'
+    'https://invidious.flokinet.to',
+    'https://iv.n8pjl.ca'
 ];
 
-/**
- * YouTubeの画像サーバー(i.ytimg.com)のURLに書き換える補助関数
- */
 function injectYoutubeThumbnails(video, id) {
     const videoId = id || video.videoId;
     if (videoId) {
@@ -43,26 +37,42 @@ function injectYoutubeThumbnails(video, id) {
 }
 
 /**
- * 複数のインスタンスを同時に叩き、最速のレスポンスを返す
+ * 修正ポイント：JSON以外のレスポンス（HTML等）をエラーとして弾く
  */
 async function fetchFromFastestInstance(endpoint) {
     const controller = new AbortController();
-    const requests = INVIDIOUS_INSTANCES.map(instance => 
-        axios.get(`${instance}/api/v1${endpoint}`, { 
-            timeout: 6000,
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-            signal: controller.signal
-        }).then(res => {
-            controller.abort(); 
+    
+    const requests = INVIDIOUS_INSTANCES.map(async (instance) => {
+        try {
+            const res = await axios.get(`${instance}/api/v1${endpoint}`, { 
+                timeout: 6000,
+                headers: { 
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'application/json' // 明示的にJSONを要求
+                },
+                signal: controller.signal
+            });
+
+            // 重要：レスポンスがHTML（<!DOCTYPE...）なら失敗扱いにする
+            if (typeof res.data === 'string' && res.data.includes('<!DOCTYPE')) {
+                throw new Error("Received HTML instead of JSON");
+            }
+
+            // データがオブジェクトでない場合も弾く
+            if (typeof res.data !== 'object') {
+                throw new Error("Invalid response format");
+            }
+
+            controller.abort(); // 成功したので他をキャンセル
             return res.data;
-        })
-    );
+        } catch (err) {
+            throw err;
+        }
+    });
+
     return await Promise.any(requests);
 }
 
-/**
- * 動画詳細情報取得 API (watch.html用)
- */
 app.get('/api/watch', async (req, res) => {
     const videoId = req.query.id || req.query.v;
     if (!videoId) return res.status(400).json({ error: 'Video ID is required' });
@@ -104,13 +114,10 @@ app.get('/api/watch', async (req, res) => {
 
     } catch (error) {
         console.error('Watch API Error:', error.message);
-        res.status(500).json({ error: '動画データの取得に失敗しました。' });
+        res.status(500).json({ error: '動画データの取得に失敗しました。', debug: error.message });
     }
 });
 
-/**
- * 検索 API
- */
 app.get('/api/search', async (req, res) => {
     const query = req.query.q;
     if (!query) return res.status(400).json({ error: 'Query is empty' });
@@ -126,11 +133,6 @@ app.get('/api/search', async (req, res) => {
     }
 });
 
-// 静的ファイルの配信
 app.use(express.static(path.join(__dirname, '../public')));
-
-app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
-});
 
 export default app;

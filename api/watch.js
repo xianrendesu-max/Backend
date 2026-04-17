@@ -7,7 +7,7 @@ app.use(cors());
 
 let youtube;
 
-// 初期化用関数（リクエスト時にも呼び出せるように分離）
+// YouTubeクライアントの初期化用関数
 async function getYoutubeClient() {
   if (!youtube) {
     youtube = await Innertube.create({
@@ -20,7 +20,7 @@ async function getYoutubeClient() {
   return youtube;
 }
 
-// サーバー起動時に初期化を開始しておく
+// サーバー起動時に初期化を開始
 (async () => {
   try {
     await getYoutubeClient();
@@ -44,7 +44,7 @@ app.get('/api/watch', async (req, res) => {
       return res.status(503).json({ error: "Client not ready" });
     }
 
-    // 1. 動画詳細情報とコメントを並行して取得
+    // 1. 動画詳細情報とコメントを並行して取得（ストリーム取得は除外）
     const [videoInfo, commentSection] = await Promise.all([
       client.getInfo(videoId),
       client.getComments(videoId).catch(() => ({ contents: [] })) // コメント失敗時は空配列
@@ -52,10 +52,7 @@ app.get('/api/watch', async (req, res) => {
 
     const basicInfo = videoInfo.basic_info;
 
-    // 2. ストリームURLの構築 (指定されたプロキシを使用)
-    const streamUrl = `https://ytdlpinstance-vercel.vercel.app/stream/${videoId}?f=18`;
-
-    // 3. コメントの整形
+    // 2. コメントの整形
     const commentThreads = commentSection.contents || [];
     const comments = commentThreads.map((thread) => {
       const c = thread.comment;
@@ -68,7 +65,7 @@ app.get('/api/watch', async (req, res) => {
       };
     });
 
-    // 4. フロントエンド(watch.html)が期待するレスポンス形式にマッピング
+    // 3. フロントエンド(watch.html)が期待するレスポンス形式にマッピング（streamsなし）
     const responseData = {
       title: basicInfo.title,
       description: basicInfo.description,
@@ -76,14 +73,6 @@ app.get('/api/watch', async (req, res) => {
       authorId: basicInfo.channel_id,
       views: basicInfo.view_count?.toLocaleString() || "0",
       published: basicInfo.is_live ? "ライブ配信中" : "公開済み",
-      // 動画ストリーム
-      streams: [
-        {
-          url: streamUrl,
-          quality: "720p",
-          container: "mp4"
-        }
-      ],
       // サムネイルをYouTube公式から取得
       thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
       // 関連動画
@@ -107,5 +96,4 @@ app.get('/api/watch', async (req, res) => {
   }
 });
 
-// 静的ファイルの設定などは環境に合わせて追加してください
 export default app;

@@ -37,50 +37,53 @@ app.get('/api/watch', async (req, res) => {
   }
 
   try {
+    // クライアントが未準備なら準備できるまで待つ
     const client = await getYoutubeClient();
 
     if (!client) {
       return res.status(503).json({ error: "Client not ready" });
     }
 
-    // 動画詳細情報とコメントを取得
+    // 1. 動画詳細情報とコメントを並行して取得（ストリーム取得は除外）
     const [videoInfo, commentSection] = await Promise.all([
       client.getInfo(videoId),
-      client.getComments(videoId).catch(() => ({ contents: [] }))
+      client.getComments(videoId).catch(() => ({ contents: [] })) // コメント失敗時は空配列
     ]);
 
     const basicInfo = videoInfo.basic_info;
 
-    // コメントの整形 (シンタックスエラー修正)
+    // 2. コメントの整形
     const commentThreads = commentSection.contents || [];
     const comments = commentThreads.map((thread) => {
       const c = thread.comment;
       return {
         author: c.author?.name || "匿名",
-        authorIcon: c.author?.thumbnails?.?.url || null,
+        authorIcon: c.author?.thumbnails?.[0]?.url || null,
         text: c.content?.toString() || "",
         date: c.published_time || "",
         likes: c.like_count || 0,
       };
     });
 
-    // フロントエンドが期待する形式に厳密にマッピング (シンタックスエラー修正)
+    // 3. フロントエンド(watch.html)が期待するレスポンス形式にマッピング（streamsなし）
     const responseData = {
-      title: basicInfo.title || "無題の動画",
-      description: basicInfo.short_description || basicInfo.description || "",
-      author: basicInfo.author || (videoInfo.primary_info?.owner?.author?.name) || "不明なチャンネル",
+      title: basicInfo.title,
+      description: basicInfo.description,
+      author: basicInfo.author,
       authorId: basicInfo.channel_id,
-      authorIcon: videoInfo.primary_info?.owner?.author?.thumbnails?.?.url || "",
       views: basicInfo.view_count?.toLocaleString() || "0",
-      published: basicInfo.is_live ? "ライブ配信中" : (videoInfo.primary_info?.published?.toString() || "公開済み"),
+      published: basicInfo.is_live ? "ライブ配信中" : "公開済み",
+      // サムネイルをYouTube公式から取得
       thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+      // 関連動画
       recommended: videoInfo.watch_next_feed?.contents?.map(v => ({
         id: v.id,
         title: v.title?.toString(),
         author: v.author?.name,
-        view_count_text: v.short_view_count?.toString(),
+        views: v.short_view_count?.toString(),
         thumbnail: `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`
       })).filter(v => v.id) || [],
+      // コメント情報
       commentCount: commentSection.header?.count?.text || "0",
       comments: comments
     };
@@ -90,30 +93,6 @@ app.get('/api/watch', async (req, res) => {
   } catch (err) {
     console.error(`[ERROR][${videoId}]`, err);
     res.status(500).json({ error: "動画情報の取得に失敗しました。" });
-  }
-});
-
-// ストリーミング用エンドポイントの追加 (HTML側の api/getstream.js に対応)
-app.get('/api/getstream.js', async (req, res) => {
-  const videoId = req.query.v;
-  if (!videoId) return res.status(400).send("ID required");
-
-  try {
-    const client = await getYoutubeClient();
-    const stream = await client.download(videoId, {
-      type: 'video+audio',
-      quality: 'best',
-      format: 'mp4'
-    });
-
-    res.setHeader('Content-Type', 'video/mp4');
-    for await (const chunk of stream) {
-      res.write(chunk);
-    }
-    res.end();
-  } catch (err) {
-    console.error("Stream Error:", err);
-    res.status(500).send("Stream Error");
   }
 });
 

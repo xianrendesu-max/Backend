@@ -37,22 +37,21 @@ app.get('/api/watch', async (req, res) => {
   }
 
   try {
-    // クライアントが未準備なら準備できるまで待つ
     const client = await getYoutubeClient();
 
     if (!client) {
       return res.status(503).json({ error: "Client not ready" });
     }
 
-    // 1. 動画詳細情報とコメントを並行して取得（ストリーム取得は除外）
+    // 動画詳細情報とコメントを取得
     const [videoInfo, commentSection] = await Promise.all([
       client.getInfo(videoId),
-      client.getComments(videoId).catch(() => ({ contents: [] })) // コメント失敗時は空配列
+      client.getComments(videoId).catch(() => ({ contents: [] }))
     ]);
 
     const basicInfo = videoInfo.basic_info;
 
-    // 2. コメントの整形
+    // コメントの整形
     const commentThreads = commentSection.contents || [];
     const comments = commentThreads.map((thread) => {
       const c = thread.comment;
@@ -65,25 +64,23 @@ app.get('/api/watch', async (req, res) => {
       };
     });
 
-    // 3. フロントエンド(watch.html)が期待するレスポンス形式にマッピング（streamsなし）
+    // フロントエンドが期待する形式に厳密にマッピング
     const responseData = {
-      title: basicInfo.title,
-      description: basicInfo.description,
-      author: basicInfo.author,
+      title: basicInfo.title || "無題の動画",
+      description: basicInfo.short_description || basicInfo.description || "",
+      author: basicInfo.author || (videoInfo.primary_info?.owner?.author?.name) || "不明なチャンネル",
       authorId: basicInfo.channel_id,
+      authorIcon: videoInfo.primary_info?.owner?.author?.thumbnails?.[0]?.url || "",
       views: basicInfo.view_count?.toLocaleString() || "0",
-      published: basicInfo.is_live ? "ライブ配信中" : "公開済み",
-      // サムネイルをYouTube公式から取得
+      published: basicInfo.is_live ? "ライブ配信中" : (videoInfo.primary_info?.published?.toString() || "公開済み"),
       thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-      // 関連動画
       recommended: videoInfo.watch_next_feed?.contents?.map(v => ({
         id: v.id,
         title: v.title?.toString(),
         author: v.author?.name,
-        views: v.short_view_count?.toString(),
+        view_count_text: v.short_view_count?.toString(),
         thumbnail: `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`
       })).filter(v => v.id) || [],
-      // コメント情報
       commentCount: commentSection.header?.count?.text || "0",
       comments: comments
     };

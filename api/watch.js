@@ -15,13 +15,7 @@ const PORT = process.env.PORT || 3000;
 // 終了したインスタンスを除外し、現在動いているものを優先
 const INVIDIOUS_INSTANCES = [
     'https://yewtu.be',
-    'https://invidious.asir.dev',
-    'https://inv.tux.pizza',
-    'https://invidious.projectsegfau.lt',
-    'https://inv.river.group',
-    'https://invidious.no-logs.com',
-    'https://invidious.flokinet.to',
-    'https://iv.n8pjl.ca'
+    'invidious.f5.si',
 ];
 
 function injectYoutubeThumbnails(video, id) {

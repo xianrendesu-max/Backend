@@ -132,4 +132,33 @@ app.get('/api/watch', async (req, res) => {
   }
 });
 
+// 新規追加: streamルート
+app.get('/api/stream', async (req, res) => {
+  const videoId = req.query.id || req.query.v;
+
+  if (!videoId) {
+    return res.status(400).json({ error: "Video ID is required" });
+  }
+
+  try {
+    const client = await getYoutubeClient();
+    const info = await client.getInfo(videoId);
+    
+    // 全フォーマットの取得
+    const allFormats = info.streaming_data ? (info.streaming_data.formats || []).concat(info.streaming_data.adaptive_formats || []) : [];
+    
+    // itag 18 (720p/360p mixed) を優先URLとして抽出
+    const itag18 = allFormats.find(function(f) { return f.itag === 18; });
+    const primaryUrl = itag18 ? itag18.url : (allFormats ? allFormats.url : "");
+
+    res.json({
+      primaryUrl: primaryUrl,
+      formats: allFormats
+    });
+  } catch (err) {
+    console.error("[ERROR][STREAM][" + videoId + "]", err);
+    res.status(500).json({ error: "ストリーム情報の取得に失敗しました。" });
+  }
+});
+
 export default app;

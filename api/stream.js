@@ -1,42 +1,48 @@
 export default async function handler(req, res) {
-  // CORSヘッダーの設定
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Content-Type', 'application/json');
 
-  // OPTIONSメソッド（プリフライトリクエスト）への対応
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+  const { id, proxy_url } = req.query;
+
+  // 動画バイナリのプロキシ処理 (proxy_urlがある場合)
+  if (proxy_url) {
+    try {
+      const videoRes = await fetch(decodeURIComponent(proxy_url));
+      const contentType = videoRes.headers.get('content-type');
+      res.setHeader('Content-Type', contentType || 'video/mp4');
+      
+      const arrayBuffer = await videoRes.arrayBuffer();
+      return res.send(Buffer.from(arrayBuffer));
+    } catch (err) {
+      return res.status(500).send("Proxy error");
+    }
   }
 
-  const videoId = req.query.id || req.query.v;
-
-  if (!videoId) {
-    return res.status(400).json({ error: "Video ID is required" });
-  }
+  // 通常のストリーム情報取得
+  if (!id) return res.status(400).json({ error: "ID required" });
 
   try {
-    // 指定されたURL「yudlp.vercel.app/stream」を叩く
-    // api/ を挟まない直下のパスに修正しました
-    const targetUrl = `https://yudlp.vercel.app/stream/${videoId}`;
-    
+    const targetUrl = `https://yudlp.vercel.app/stream/${id}`;
     const response = await fetch(targetUrl);
-    
-    if (!response.ok) {
-      throw new Error(`External API responded with status: ${response.status}`);
-    }
-
     const data = await response.json();
 
-    // yudlp.vercel.app から返ってきた内容をそのまま返却
-    res.status(200).json(data);
+    // 再生URLを自分のサーバー経由のURLに書き換える
+    const host = req.headers.host;
+    const protocol = req.headers['x-forwarded-proto'] || 'http';
+    const proxyBase = `${protocol}://${host}/api/stream?proxy_url=`;
 
+    if (data.primaryUrl) {
+      data.primaryUrl = proxyBase + encodeURIComponent(data.primaryUrl);
+    }
+    if (data.formats) {
+      data.formats = data.formats.map(f => ({
+        ...f,
+        url: proxyBase + encodeURIComponent(f.url)
+      }));
+    }
+
+    res.status(200).json(data);
   } catch (err) {
-    console.error(err);
-    // エラー時もJSON形式を維持
-    res.status(500).json({ 
-      error: "ストリーム情報の取得に失敗しました。",
-      details: err.message 
-    });
+    res.status(500).json({ error: err.message });
   }
 }

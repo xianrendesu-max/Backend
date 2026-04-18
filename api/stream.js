@@ -18,7 +18,7 @@ export default async function handler(req, res) {
   try {
     // yudlp.vercel.app のエンドポイントからデータを取得
     // 注: yudlp側の仕様に合わせてURLを構築しています
-    const targetUrl = `https://yudlp.vercel.app/api/stream?id=${videoId}`;
+    const targetUrl = `https://yudlp.vercel.app/stream?id=${videoId}`;
     
     const response = await fetch(targetUrl);
     

@@ -16,8 +16,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    // yudlp.vercel.app のエンドポイントからデータを取得
-    // 注: yudlp側の仕様に合わせてURLを構築しています
+    // 指定されたURL「yudlp.vercel.app/stream」を叩く
+    // api/ を挟まない直下のパスに修正しました
     const targetUrl = `https://yudlp.vercel.app/stream?id=${videoId}`;
     
     const response = await fetch(targetUrl);
@@ -28,11 +28,12 @@ export default async function handler(req, res) {
 
     const data = await response.json();
 
-    // 外部APIの内容をそのまま（あるいは構造を維持して）返却
+    // yudlp.vercel.app から返ってきた内容をそのまま返却
     res.status(200).json(data);
 
   } catch (err) {
     console.error(err);
+    // エラー時もJSON形式を維持
     res.status(500).json({ 
       error: "ストリーム情報の取得に失敗しました。",
       details: err.message 

@@ -18,7 +18,7 @@ export default async function handler(req, res) {
   try {
     // 指定されたURL「yudlp.vercel.app/stream」を叩く
     // api/ を挟まない直下のパスに修正しました
-    const targetUrl = `https://yudlp.vercel.app/stream?id=${videoId}`;
+    const targetUrl = `https://yudlp.vercel.app/stream/${videoId}`;
     
     const response = await fetch(targetUrl);
     

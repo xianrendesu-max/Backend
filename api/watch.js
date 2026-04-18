@@ -23,12 +23,12 @@ async function getYoutubeClient() {
 
 // 関連動画のサムネイル base64 取得
 async function getThumbnailBase64(videoId) {
-  const imgUrl = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
+  const imgUrl = "https://img.youtube.com/vi/" + videoId + "/mqdefault.jpg";
   try {
     const res = await fetch(imgUrl);
     if (!res.ok) return "";
     const buffer = Buffer.from(await res.arrayBuffer());
-    return `data:image/jpeg;base64,${buffer.toString("base64")}`;
+    return "data:image/jpeg;base64," + buffer.toString("base64");
   } catch (e) {
     return "";
   }
@@ -61,15 +61,15 @@ app.get('/api/watch', async (req, res) => {
     // 1. 動画詳細情報とコメントを並行して取得（ストリーム取得は除外）
     const [videoInfo, commentSection] = await Promise.all([
       client.getInfo(videoId),
-      client.getComments(videoId).catch(() => ({ contents: [] })) // コメント失敗時は空配列
+      client.getComments(videoId).catch(function() { return { contents: [] }; }) // コメント失敗時は空配列
     ]);
 
-    const basicInfo = videoInfo.basic_info;
+    const basicInfo = videoInfo.basic_info || {};
 
     // 2. コメントの整形
     const commentThreads = commentSection.contents || [];
-    const comments = commentThreads.map((thread) => {
-      const c = thread.comment;
+    const comments = commentThreads.map(function(thread) {
+      const c = thread.comment || {};
       return {
         author: (c.author && c.author.name) || "匿名",
         authorIcon: (c.author && c.author.thumbnails && c.author.thumbnails && c.author.thumbnails.url) || null,
@@ -80,38 +80,45 @@ app.get('/api/watch', async (req, res) => {
     });
 
     // 関連動画のパース
+    const rawRelated = videoInfo.watch_next_feed || [];
     const related = await Promise.all(
-      (videoInfo.watch_next_feed || []).map(async (item) => {
-        const id = item?.id || item?.video_id || item?.renderer_context?.command_context?.on_tap?.payload?.videoId || "";
-        const thumbnailBase64 = id ? await getThumbnailBase64(id) : "";
+      rawRelated.map(async function(item) {
+        const id = item.id || item.video_id || 
+                   (item.renderer_context && item.renderer_context.command_context && 
+                    item.renderer_context.command_context.on_tap && 
+                    item.renderer_context.command_context.on_tap.payload && 
+                    item.renderer_context.command_context.on_tap.payload.videoId) || "";
+        
+        if (!id) return { id: null };
+        const thumbnailBase64 = await getThumbnailBase64(id);
 
         return {
           id: id,
-          title: item?.title?.toString() || item?.metadata?.title?.text || "",
-          author: item?.author?.name || item?.metadata?.metadata?.metadata_rows?.?.metadata_parts?.?.text?.text || "",
-          views: item?.short_view_count?.toString() || item?.metadata?.metadata?.metadata_rows?.?.metadata_parts?.?.text?.text || "",
-          thumbnail: thumbnailBase64 || `https://i.ytimg.com/vi/${id}/mqdefault.jpg`
+          title: (item.title && item.title.toString()) || (item.metadata && item.metadata.title && item.metadata.title.text) || "",
+          author: (item.author && item.author.name) || (item.metadata && item.metadata.metadata && item.metadata.metadata.metadata_rows && item.metadata.metadata.metadata_rows && item.metadata.metadata.metadata_rows.metadata_parts && item.metadata.metadata.metadata_rows.metadata_parts && item.metadata.metadata.metadata_rows.metadata_parts.text && item.metadata.metadata.metadata_rows.metadata_parts.text.text) || "",
+          views: (item.short_view_count && item.short_view_count.toString()) || (item.metadata && item.metadata.metadata && item.metadata.metadata.metadata_rows && item.metadata.metadata.metadata_rows && item.metadata.metadata.metadata_rows.metadata_parts && item.metadata.metadata.metadata_rows.metadata_parts && item.metadata.metadata.metadata_rows.metadata_parts.text && item.metadata.metadata.metadata_rows.metadata_parts.text.text) || "",
+          thumbnail: thumbnailBase64 || ("https://i.ytimg.com/vi/" + id + "/mqdefault.jpg")
         };
       })
     );
 
     // 3. フロントエンド(watch.html)が期待するレスポンス形式にマッピング（streamsなし）
     const responseData = {
-      title: videoInfo.primary_info?.title?.text || basicInfo.title || "",
-      description: videoInfo.secondary_info?.description?.text || basicInfo.short_description || (basicInfo.description && basicInfo.description.toString()) || "",
+      title: (videoInfo.primary_info && videoInfo.primary_info.title && videoInfo.primary_info.title.text) || basicInfo.title || "",
+      description: (videoInfo.secondary_info && videoInfo.secondary_info.description && videoInfo.secondary_info.description.text) || basicInfo.short_description || (basicInfo.description && basicInfo.description.toString()) || "",
       author: {
-        id: basicInfo.channel_id || videoInfo.secondary_info?.owner?.author?.id || "",
-        name: basicInfo.author || videoInfo.secondary_info?.owner?.author?.name || "",
-        subscribers: videoInfo.secondary_info?.owner?.subscriber_count?.text || "",
-        thumbnail: videoInfo.secondary_info?.owner?.author?.thumbnails?.?.url || ""
+        id: basicInfo.channel_id || (videoInfo.secondary_info && videoInfo.secondary_info.owner && videoInfo.secondary_info.owner.author && videoInfo.secondary_info.owner.author.id) || "",
+        name: basicInfo.author || (videoInfo.secondary_info && videoInfo.secondary_info.owner && videoInfo.secondary_info.owner.author && videoInfo.secondary_info.owner.author.name) || "",
+        subscribers: (videoInfo.secondary_info && videoInfo.secondary_info.owner && videoInfo.secondary_info.owner.subscriber_count && videoInfo.secondary_info.owner.subscriber_count.text) || "",
+        thumbnail: (videoInfo.secondary_info && videoInfo.secondary_info.owner && videoInfo.secondary_info.owner.author && videoInfo.secondary_info.owner.author.thumbnails && videoInfo.secondary_info.owner.author.thumbnails && videoInfo.secondary_info.owner.author.thumbnails.url) || ""
       },
       authorId: basicInfo.channel_id,
-      views: videoInfo.primary_info?.view_count?.view_count?.text || (basicInfo.view_count && basicInfo.view_count.toLocaleString()) || "0",
-      published: basicInfo.is_live ? "ライブ配信中" : (videoInfo.primary_info?.relative_date?.text || "公開済み"),
+      views: (videoInfo.primary_info && videoInfo.primary_info.view_count && videoInfo.primary_info.view_count.view_count && videoInfo.primary_info.view_count.view_count.text) || (basicInfo.view_count && basicInfo.view_count.toLocaleString()) || "0",
+      published: basicInfo.is_live ? "ライブ配信中" : ((videoInfo.primary_info && videoInfo.primary_info.relative_date && videoInfo.primary_info.relative_date.text) || "公開済み"),
       // サムネイルをYouTube公式から取得
       thumbnail: "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg",
       // 関連動画
-      recommended: related.filter(v => v.id),
+      recommended: related.filter(function(v) { return v.id; }),
       // コメント情報
       commentCount: (commentSection.header && commentSection.header.count && commentSection.header.count.text) || "0",
       comments: comments
